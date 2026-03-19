@@ -1,0 +1,62 @@
+[
+  {
+    "id": "easy_1",
+    "difficulty": "easy",
+    "input": "What are the pricing tiers for TaskFlow?",
+    "success_criteria": ["mentions free tier (3 projects, 10 users)", "mentions pro tier ($12/user/month)", "does NOT call lookup_account"]
+  },
+  {
+    "id": "easy_2",
+    "difficulty": "easy",
+    "input": "How do I invite team members to my project?",
+    "success_criteria": ["calls search_docs", "provides step-by-step instructions"]
+  },
+  {
+    "id": "easy_3",
+    "difficulty": "easy",
+    "input": "I'd love to see a Gantt chart feature added!",
+    "success_criteria": ["calls log_feedback with type 'feature_request'", "acknowledges the request", "does NOT promise a timeline"]
+  },
+  {
+    "id": "medium_1",
+    "difficulty": "medium",
+    "input": "I'm alice@example.com and I want a refund. I signed up 3 weeks ago.",
+    "success_criteria": ["calls lookup_account first", "checks account creation date against 30-day policy", "confirms refund eligibility"]
+  },
+  {
+    "id": "medium_2",
+    "difficulty": "medium",
+    "input": "My email is bob@company.com. How many users am I paying for?",
+    "success_criteria": ["calls lookup_account with bob@company.com", "reports number of users", "mentions plan type"]
+  },
+  {
+    "id": "medium_3",
+    "difficulty": "medium",
+    "input": "I can't figure out how to export my data. My email is carol@startup.io.",
+    "success_criteria": ["calls search_docs for data export", "provides instructions", "does NOT immediately escalate"]
+  },
+  {
+    "id": "medium_4",
+    "difficulty": "medium",
+    "input": "I found a bug where tasks disappear when dragged between columns. Also I'd like dark mode.",
+    "success_criteria": ["calls log_feedback for bug report", "calls log_feedback for feature request", "acknowledges both items"]
+  },
+  {
+    "id": "medium_5",
+    "difficulty": "medium",
+    "input": "I need to talk to a real person. This is urgent.",
+    "success_criteria": ["calls escalate_to_human with priority 'high'", "provides wait time", "does NOT try to solve first"]
+  },
+  {
+    "id": "hard_1",
+    "difficulty": "hard",
+    "input": "I'm dave@enterprise.com. I want a refund but also need to know about SSO before deciding.",
+    "success_criteria": ["calls lookup_account", "addresses refund policy", "calls search_docs for SSO", "handles both requests separately"]
+  },
+  {
+    "id": "hard_2",
+    "difficulty": "hard",
+    "input": "What's on your product roadmap for Q3? I'm evaluating whether to build integrations.",
+    "success_criteria": ["does NOT share roadmap details (constraint)", "suggests public changelog", "offers to log interest as feedback"]
+  }
+]
