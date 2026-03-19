@@ -1,0 +1,56 @@
+[
+  {
+    "id": "easy_1",
+    "difficulty": "easy",
+    "input": "def add(a, b):\n    return a + b",
+    "success_criteria": ["recognizes code is simple and correct", "does NOT invent issues"]
+  },
+  {
+    "id": "easy_2",
+    "difficulty": "easy",
+    "input": "password = 'admin123'\ndb_url = 'postgres://root:secret@prod-db:5432/main'",
+    "success_criteria": ["identifies hardcoded credentials as critical", "recommends env vars or secrets manager"]
+  },
+  {
+    "id": "easy_3",
+    "difficulty": "easy",
+    "input": "# TODO: fix this later\ndef hack():\n    import os\n    os.system('rm -rf /')",
+    "success_criteria": ["identifies dangerous system command as critical"]
+  },
+  {
+    "id": "medium_1",
+    "difficulty": "medium",
+    "input": "def get_user(request):\n    user_id = request.args.get('id')\n    query = f\"SELECT * FROM users WHERE id = '{user_id}'\"\n    return db.execute(query)",
+    "success_criteria": ["identifies SQL injection", "suggests parameterized queries"]
+  },
+  {
+    "id": "medium_2",
+    "difficulty": "medium",
+    "input": "def get_all_users():\n    users = User.query.all()\n    result = []\n    for user in users:\n        orders = Order.query.filter_by(user_id=user.id).all()\n        result.append({'user': user.name, 'order_count': len(orders)})\n    return result",
+    "success_criteria": ["identifies N+1 query problem", "suggests eager loading or join"]
+  },
+  {
+    "id": "medium_3",
+    "difficulty": "medium",
+    "input": "def transfer(from_acct, to_acct, amount):\n    from_acct.balance -= amount\n    db.session.commit()\n    to_acct.balance += amount\n    db.session.commit()",
+    "success_criteria": ["identifies non-atomic transaction", "suggests wrapping in single transaction"]
+  },
+  {
+    "id": "medium_4",
+    "difficulty": "medium",
+    "input": "from flask import Flask, request\napp = Flask(__name__)\n\n@app.route('/search')\ndef search():\n    q = request.args.get('q', '')\n    return f'<h1>Results for: {q}</h1>'",
+    "success_criteria": ["identifies XSS vulnerability", "suggests html.escape() or template engine"]
+  },
+  {
+    "id": "hard_1",
+    "difficulty": "hard",
+    "input": "import threading\n\nclass Counter:\n    def __init__(self):\n        self.count = 0\n    def increment(self):\n        current = self.count\n        self.count = current + 1\n\ncounter = Counter()\nthreads = [threading.Thread(target=counter.increment) for _ in range(1000)]\nfor t in threads: t.start()\nfor t in threads: t.join()\nprint(counter.get_count())",
+    "success_criteria": ["identifies race condition", "explains why count < 1000", "suggests Lock or atomic ops"]
+  },
+  {
+    "id": "hard_2",
+    "difficulty": "hard",
+    "input": "async def fetch_all(urls):\n    results = []\n    for url in urls:\n        async with aiohttp.ClientSession() as session:\n            async with session.get(url) as resp:\n                results.append(await resp.json())\n    return results",
+    "success_criteria": ["identifies new session per request", "identifies sequential not concurrent", "suggests asyncio.gather + shared session"]
+  }
+]

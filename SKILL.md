@@ -5,42 +5,86 @@ description: Use when designing or building AI agent systems, choosing between w
 
 # Agent System Architect
 
-## Overview
+## When This Skill Activates
 
-**Core principle:** Start with the simplest solution that meets the need. Complexity is a cost, not a feature.
+This skill applies when you encounter ANY of these signals:
 
-Five disciplines compound each other: architecture selection -> tool design -> context engineering -> think tool -> evals. Get one wrong and the others can't compensate.
+- Building or modifying an agent that makes LLM API calls
+- Designing tool schemas or MCP servers for agent consumption
+- Setting up agent evaluation (evals)
+- Debugging agent behavior (wrong tool calls, context issues, poor decisions)
+- Choosing between single agent vs multi-agent vs workflow
+- Managing long-running agent sessions (context rot, state persistence)
+- Implementing RAG for knowledge-heavy agents
 
-## Architecture Decision Tree
+**Core principle:** Start with the simplest solution that meets the need. Complexity is a cost, not a feature. Five disciplines compound each other: architecture selection, tool design, context engineering, think tool, and evals. Get one wrong and the others cannot compensate.
+
+---
+
+## First: Assess the Situation
+
+Before recommending anything, answer these questions by examining the codebase:
+
+1. **Lifecycle stage:** Are we starting from scratch (0-to-1), adding features (growing), or debugging (struggling)?
+2. **Architecture:** Single agent? Multi-agent? Workflow? What pattern is currently in use?
+3. **Tool inventory:** How many tools? How are they designed? What's the token budget for tool definitions?
+4. **Context health:** How is context managed? Any signs of context rot (degraded quality over conversation length)?
+5. **Eval status:** Do evals exist? What do they cover? Are they saturated?
+
+Based on this assessment, follow the appropriate section below.
+
+---
+
+## Architecture Decision Engine
+
+Think through this step by step. Do not prescribe an architecture without reasoning through each step.
+
+### Step 1: Complexity Assessment
 
 ```
-Is task complexity high + outcome unpredictable?
-  YES -> Parallel subtasks possible?
-    YES -> Multi-Agent (Orchestrator-Workers)
-    NO  -> Single Autonomous Agent (use sparingly)
-  NO  -> Quality iteration needed?
-    YES -> Clear evaluation criteria exist?
-      YES -> Evaluator-Optimizer Workflow
-      NO  -> Human-in-the-loop review instead
-    NO  -> Multiple input types or domains?
-      YES -> > 3 distinct categories?
-        YES -> Router Workflow
-        NO  -> Handle in system prompt with conditional logic
-      NO  -> Sequential steps with validation?
-        YES -> Steps > 5?
-          YES -> Consider breaking into sub-chains
-          NO  -> Prompt Chain
-        NO  -> Single LLM call sufficient?
-          YES -> Augmented LLM (single call)
-          NO  -> Re-evaluate: you may be underestimating complexity
+If < 5 subtasks AND predictable outcomes --> Lean toward WORKFLOW
+If > 5 subtasks OR unpredictable outcomes --> Lean toward AGENT
 ```
 
-### Architecture Selection: Real-World Examples
+### Step 2: Parallelism Check
+
+```
+If subtasks run independently --> Multi-agent (Orchestrator-Workers)
+If subtasks are sequential    --> Single agent or Prompt Chain
+```
+
+### Step 3: Quality Requirements
+
+```
+If output needs iterative refinement AND clear eval criteria --> Evaluator-Optimizer
+If output needs refinement BUT no clear criteria            --> Human-in-the-loop
+If no refinement needed                                     --> Simpler pattern
+```
+
+### Step 4: Input Diversity
+
+```
+If different inputs need different handlers AND > 3 categories --> Router
+If < 3 categories --> Handle in system prompt with conditional logic
+```
+
+### Step 5: Confirm Architecture
+
+| Pattern | When to Use | Complexity | Token Cost |
+|---------|------------|:----------:|:----------:|
+| Augmented LLM | Single task, single call, predictable | Lowest | $ |
+| Prompt Chain | Sequential steps with validation gates | Low | $$ |
+| Router | Multiple input types need different handlers | Low | $$ |
+| Parallelization | Independent chunks or voting for reliability | Medium | $$ |
+| Orchestrator-Workers | Dynamic decomposition, unknown subtask count | High | $$$ |
+| Evaluator-Optimizer | Iterative refinement, subjective quality | High | $$$ |
+
+### Real-World Examples
 
 | Use Case | Wrong Choice | Right Choice | Why |
 |----------|-------------|--------------|-----|
-| Email triage | Autonomous agent | Router | 3 categories (urgent/normal/spam), deterministic |
-| Code migration | Prompt chain | Orchestrator-Workers | File count unknown upfront, parallelizable |
+| Email triage | Autonomous agent | Router | 3 categories, deterministic |
+| Code migration | Prompt chain | Orchestrator-Workers | File count unknown, parallelizable |
 | Blog post writing | Single LLM call | Evaluator-Optimizer | Quality is subjective, benefits from iteration |
 | Customer support | Complex router | Prompt chain + think tool | Sequential policy checks, not routing |
 | Data pipeline QA | Autonomous agent | Prompt chain | Steps are fixed and well-defined |
@@ -53,32 +97,73 @@ Is task complexity high + outcome unpredictable?
 | Prompt Chain | Low | $$ | High | Easy (step-by-step) |
 | Router | Low | $$ | High | Easy (check classification) |
 | Parallel Workers | Low (parallel) | $$ | High | Medium |
-| Evaluator-Optimizer | Medium-High | $$$ | Medium | Medium (check feedback loops) |
-| Orchestrator-Workers | High | $$$-$$$$ | Medium | Hard (distributed state) |
+| Evaluator-Optimizer | Medium-High | $$$ | Medium | Medium |
+| Orchestrator-Workers | High | $$$-$$$$ | Medium | Hard |
 | Autonomous Agent | Unpredictable | $$$$ | Lowest | Hardest |
 
-**CRITICAL:** Prefer workflows over autonomous agents for well-defined tasks. Workflows = deterministic and debuggable; agents = flexible but unpredictable.
+**CRITICAL:** Prefer workflows over autonomous agents for well-defined tasks. Workflows are deterministic and debuggable. Agents are flexible but unpredictable.
 
-See `references/patterns-reference.md` for full implementation of each pattern with case studies.
+See `references/patterns-reference.md` for full implementation with case studies.
 
-## Tool Design
+---
 
-Tools dominate agent context. Poor tools destroy good architectures.
+## Tool Design Clinic
 
-### Five Design Principles
+Tools dominate agent context. Poor tools destroy good architectures. When designing or reviewing tools, run this diagnostic.
 
-1. **Merge granular APIs** into agent-appropriate operations (e.g., `update_user_profile` not `PATCH /users/:id`)
-2. **Design for agent affordances** — descriptions say WHEN to use the tool, not just what it does
-3. **Return semantic IDs** — `user_john_doe` not `u1234` so the agent can reason about them
-4. **Errors suggest next action** — "User not found. Try search_users to find the correct user ID." not just "404"
-5. **Pagination + filtering as defaults** — agents handle 10 results well, 1000 results badly
+### Diagnostic 1: Token Budget
 
-### Minimal Viable Tool (MVT)
+Count total tokens across all tool definitions. If > 10K tokens, implement Tool Search Tool (lazy-load). Result: ~85% context reduction.
 
-Build the smallest tool that lets the agent accomplish the task. Add complexity only when evals show the agent struggling.
+### Diagnostic 2: Granularity Check
+
+For each tool, ask: "Does this require the agent to make multiple calls to achieve one logical action?"
 
 ```
-MVT Checklist:
+BAD:  list_users() -> get_user_calendar() -> check_availability() -> create_event()
+GOOD: schedule_meeting(participants, time, title)
+```
+
+Design for agent affordances, not human affordances. Merge granular APIs into agent-appropriate tools.
+
+### Diagnostic 3: Error Quality
+
+Does the error response tell the agent what to do next?
+
+```python
+# BAD: Agent has no idea what to do
+{"error": "not found"}
+
+# GOOD: Agent knows exactly how to recover
+{"error": "User not found", "suggestion": "Try 'john.smith' - closest match"}
+```
+
+### Diagnostic 4: Return Value Semantics
+
+```
+BAD:  {"id": "a1b2c3", "type": "evt"}
+GOOD: {"id": "q3_planning_meeting", "type": "calendar_event", "title": "Q3 Planning Meeting"}
+```
+
+### Diagnostic 5: Response Size Control
+
+Does each tool support filtering and pagination? Claude Code enforces ~25K token max on tool responses.
+
+### Diagnostic 6: Description Quality
+
+Each tool description should follow:
+
+```
+{tool_name}: {what it does, for what purpose}
+Use when: {specific triggering conditions}
+Do NOT use when: {anti-patterns}
+```
+
+**Impact:** Refining tool descriptions alone (without changing code) took Claude Sonnet to SWE-Bench SOTA.
+
+### MVT Checklist
+
+```
 [ ] Tool does ONE thing well
 [ ] Description explains WHEN to use it (not just what)
 [ ] 1-3 required parameters, optional params have sensible defaults
@@ -87,34 +172,24 @@ MVT Checklist:
 [ ] Has 1-3 usage examples in the description
 ```
 
-### Tool Optimization
+### Tool Optimization Quick Reference
 
 | Problem | Solution | Gain |
 |---------|----------|------|
-| Tool definitions > 10K tokens | Tool Search Tool (lazy-load) | 85% context reduction |
+| Definitions > 10K tokens | Tool Search Tool (lazy-load) | 85% context reduction |
 | Multi-step orchestration | Programmatic Tool Calling | 37% fewer tokens |
-| Wrong tool usage | Tool Use Examples (1-5 per tool) | 72% -> 90% accuracy |
-| Ambiguous tool selection | Clearer `when to use` descriptions | Reduces mis-selection |
+| Wrong tool usage | Tool Use Examples (1-5 per tool) | 72% to 90% accuracy |
+| Ambiguous selection | Clearer `when to use` descriptions | Reduces mis-selection |
 
-### Common Anti-Patterns
-
-| Anti-Pattern | Problem | Fix |
-|-------------|---------|-----|
-| CRUD-style tools | Too granular, agent makes many calls | Merge into task-oriented tools |
-| Opaque errors | Agent retries blindly | Return actionable error messages |
-| Missing descriptions | Agent guesses when to use tool | Add `when to use` + examples |
-| Too many required params | Agent fills incorrectly | Use sensible defaults |
-| Returning raw HTML/XML | Wastes context tokens | Parse and return structured data |
-
-See `references/tool-design-reference.md` for complete tool templates and error recovery patterns.
+See `references/tool-design-reference.md` for complete templates and error recovery patterns.
 
 **Tool dev cycle:** Prototype in Claude Code -> write eval specs -> feed failing transcripts back -> iterate.
 
-## Context Engineering
+---
 
-Context engineering = managing the full context window lifecycle, not just the initial prompt.
+## Context Engineering Playbook
 
-**Context rot:** Performance degrades as context fills. Quality > capacity even with 200K windows.
+Context engineering is managing the full context window lifecycle, not just the initial prompt. Even with 1M token windows, 900K tokens of irrelevant content degrades performance. **Quality always beats capacity.**
 
 ### The Context Stack
 
@@ -126,27 +201,38 @@ Conversation History <- Grows over time (context rot risk)
 Current Task         <- User's immediate request
 ```
 
-Each layer has a different half-life and impact on agent behavior. Optimize from top to bottom.
+Each layer has a different half-life and impact. Optimize from top to bottom.
 
-### System Prompt: The Right Altitude
+### For New Agents (0 to 1)
+
+**System prompt at the "right altitude":**
 
 ```
-Too high (useless):    "You are a helpful assistant."
-Too low (brittle):     "When user says X, run SQL query: SELECT..."
-Right altitude:        "You are a billing specialist. Retrieve invoice data
-                        and explain it clearly. Default to last 30 days."
+Too vague (useless):  "You are a helpful assistant."
+Too rigid (brittle):  "When user asks about invoice, run SELECT * FROM invoices WHERE..."
+Right altitude:       "You are a billing specialist. Retrieve invoice data and explain
+                       clearly. For date queries, default to last 30 days."
 ```
 
 Include: role + decision criteria + tool guidance + constraints.
 Exclude: what the model already knows, verbose examples for simple tasks.
 
-### Long-Running Agent Strategies
+**Token budget:** Simple chatbot 500-1K, tool-using 1-3K, complex multi-tool 2-5K. If more, use sub-agents.
 
-1. **Compaction** — Summarize and re-initialize when context > 70% full
-2. **External memory** — Write key decisions to a progress file the agent reads each session
-3. **Sub-agents** — Isolate polluting exploration (research, file scanning) in sub-agents
-4. **Progressive disclosure** — Lazy-load tools and context as needed, not all upfront
-5. **Init pattern** — For multi-day projects: `init.sh` + `progress.txt` + `features.json`
+### For Growing Agents (Adding Features)
+
+1. Check context utilization. If past 50%, act now.
+2. Implement **compaction** at 70% full (summarize and re-initialize).
+3. Add **external memory** (progress file) before hitting the wall.
+4. Isolate polluting tasks with **sub-agents** (research, file scanning).
+5. Use **progressive disclosure** (lazy-load tools, not all upfront).
+
+### For Struggling Agents (Debugging)
+
+1. Read the full transcript, not just the final output. Scores lie.
+2. Look for: wrong tool calls, repeated actions, context confusion.
+3. Add think tool if the agent makes poor decisions at branching points.
+4. Check for context rot: does quality degrade after 20+ turns?
 
 ### Good vs Bad Context Engineering
 
@@ -159,16 +245,15 @@ GOOD: Compact at 70% capacity, preserving key decisions
 
 BAD:  Put all 50 tool definitions in the system prompt
 GOOD: Give 5 core tools + a tool-search tool for the rest
-
-BAD:  Repeat instructions at every turn
-GOOD: Put stable instructions in system prompt, dynamic info in retrieved context
 ```
 
 See `references/context-engineering-reference.md` for implementation patterns.
 
+---
+
 ## Think Tool
 
-Add to any agent with > 3 sequential tool calls or policy-constrained decisions. Simple JSON tool with a single `thought` string parameter. +54% on complex policy tasks (Airline tau-bench).
+Add to any agent with > 3 sequential tool calls or policy-constrained decisions. +54% on complex policy tasks (Airline tau-bench).
 
 **When to add:**
 - Agent makes > 3 sequential tool calls
@@ -181,7 +266,11 @@ Add to any agent with > 3 sequential tool calls or policy-constrained decisions.
 - Routing/classification tasks
 - Tasks with no ambiguity in action sequence
 
+**Think Tool vs Extended Thinking:** Think tool is for mid-response reasoning between tool calls. Extended thinking is for complex upfront reasoning. Both can be used together.
+
 See `references/think-tool-reference.md` for JSON schema, multi-language implementations, and performance data.
+
+---
 
 ## Multi-Agent Architecture
 
@@ -195,16 +284,28 @@ Use when: single agent fills context before completing, tasks are parallelizable
 | Workers | Claude Sonnet | Cost-efficient, sufficient for focused tasks |
 | RAG/context generation | Claude Haiku | Fast, cheap, mechanical tasks |
 
-### Key Orchestration Rules
+### The 8 Orchestration Principles
 
-1. **Teach delegation explicitly** in system prompt ("delegate research to workers, never do it yourself")
-2. **Scale to complexity** — 1 subagent for simple, 10+ for complex
-3. **Make worker instructions self-contained** — no assumed shared context
-4. **Parallel tool calling** = 90% time reduction vs sequential
-5. **Budget accordingly** — costs 15x more tokens than single-agent chat
-6. **Workers report structured results** — JSON with findings, confidence, gaps
-7. **Orchestrator synthesizes** — never just concatenates worker outputs
-8. **Fail gracefully** — if a worker fails, the orchestrator continues with remaining results
+1. **Think like your agents** -- Build simulations to understand the agent experience
+2. **Teach delegation explicitly** -- "Delegate research to workers, never do it yourself"
+3. **Scale to complexity** -- 1-3 subagents for focused, 8-12 for multi-domain research
+4. **Make worker instructions self-contained** -- No assumed shared context
+5. **Let agents self-improve** -- Show Claude its failures and ask how prompts should change
+6. **Start wide, narrow down** -- Broad initial queries, then progressively focus
+7. **Parallel tool calling** -- 90% time reduction for complex queries
+8. **Fail gracefully** -- If a worker fails, continue with remaining results
+
+### Token Budget Reality
+
+```
+Chat interaction:       ~1x baseline cost
+Single agent task:      ~4x baseline cost
+Multi-agent system:     ~15x baseline cost
+```
+
+Budget accordingly. Use cheaper models for subagents.
+
+---
 
 ## RAG for Knowledge-Heavy Agents
 
@@ -212,17 +313,19 @@ Naive RAG fails because chunks lose context. Use contextual retrieval: add 50-10
 
 See `references/rag-reference.md` for full pipeline and implementation.
 
-## Evals
+---
 
-Build evals before building the agent (like TDD). No eval = no confidence.
+## Evaluation Strategy
 
-### Three Grader Types
+Build evals before building the agent. No eval means no confidence. This is TDD for agents.
 
-1. **Code-based** — Binary outcomes, unit tests, regex matching (cheap, fast)
-2. **Model-based** — Quality, nuance, rubric scoring (slower, more capable)
-3. **Human** — Ground truth, edge cases, blind spots (expensive, authoritative)
+### Three Grader Types (Layer All Three)
 
-Layer all three. Code-based catches regressions; model-based catches quality drops; human catches blind spots.
+1. **Code-based** -- Binary outcomes, unit tests, regex matching (cheap, fast)
+2. **Model-based** -- Quality, nuance, rubric scoring (slower, more capable)
+3. **Human** -- Ground truth, edge cases, blind spots (expensive, authoritative)
+
+Human review catches ~20% of issues that automated evals miss.
 
 ### Quick Setup
 
@@ -232,22 +335,89 @@ Layer all three. Code-based catches regressions; model-based catches quality dro
 3. Build balanced set: 30% easy / 50% medium / 20% hard
 4. Implement code-based graders first
 5. Add model-based graders for nuanced dimensions
-6. Read transcripts regularly — scores lie, transcripts reveal truth
+6. Read transcripts regularly -- scores lie, transcripts reveal truth
 7. Track scores over time; block releases on > 5% regression
 ```
 
+### Eval Saturation
+
+When an agent passes all solvable tasks, the eval is exhausted. Expand the test suite.
+
+### Multi-Agent Eval Principle
+
+Multi-agent systems take varied valid paths. **Grade outputs, not tool sequences.**
+
 See `references/evals-reference.md` for agent-specific eval patterns, grader templates, and regression detection.
+
+---
+
+## Long-Running Agent Harness
+
+For agents that work across multiple sessions.
+
+### The Feature List Pattern
+
+All features start as "failing". Agent cannot mark complete without passing tests. Agent cannot modify tests.
+
+### Session Startup Protocol
+
+```
+1. Read progress file + git log (what was completed?)
+2. Read feature list (which features still failing?)
+3. Run basic tests (is the app working?)
+4. Pick ONE failing feature
+5. Implement + test rigorously
+6. Git commit + update progress file
+```
+
+---
+
+## Quick Reference: The Agent Loop
+
+Every agent follows a three-phase loop:
+
+```
+GATHER CONTEXT --> TAKE ACTION --> VERIFY WORK
+      ^                                |
+      +--------------------------------+
+              (repeat until done)
+```
+
+**Gather:** File search, semantic search, sub-agents, memory reads
+**Act:** Tool calls, code generation, bash commands, MCP integrations
+**Verify:** Rule-based checks, visual feedback, LLM-as-judge
+
+---
+
+## Debugging Agent Failures
+
+When an agent is not performing well, check these in order. Most failures are caused by the first two items.
+
+```
+1. Tool problems?       -> Is the agent calling wrong tools?
+                           Fix: Better descriptions, add examples
+2. Context problems?    -> Is the agent ignoring recent information?
+                           Fix: Compact context, add sub-agents
+3. Reasoning problems?  -> Wrong decisions despite good info?
+                           Fix: Add think tool, improve decision criteria
+4. Architecture problems? -> Task shape doesn't fit the pattern?
+                            Fix: Re-run Architecture Decision Engine
+5. Self-improvement      -> Show Claude its failure transcripts
+                           Ask: "Why did you fail? How should prompts change?"
+```
+
+---
 
 ## Common Mistakes
 
 | Mistake | Why It Happens | Fix |
 |---------|---------------|-----|
-| Starting with autonomous agent | Agents seem powerful | Use decision tree — workflows first |
+| Starting with autonomous agent | Agents seem powerful | Use decision tree -- workflows first |
 | Vague tool descriptions | Copied from API docs | Rewrite: when to use + examples |
-| No think tool for complex agents | Seems unnecessary | Add before shipping — +54% on policy tasks |
+| No think tool for complex agents | Seems unnecessary | Add before shipping -- +54% on policy tasks |
 | Single agent for parallelizable work | Simpler to implement | Switch to Orchestrator-Workers |
 | Evals built after agent | "We'll add tests later" | Build evals first (TDD for agents) |
-| Ignoring context rot | Works fine in short tests | Monitor performance vs. conversation length |
+| Ignoring context rot | Works fine in short tests | Monitor perf vs conversation length |
 | Too many tools loaded at once | "Agent might need them" | Tool Search Tool for lazy loading |
 | Raw API responses as tool output | Quick to implement | Parse and return structured data |
 
@@ -255,29 +425,14 @@ See `references/evals-reference.md` for agent-specific eval patterns, grader tem
 
 ```
 1. Define success criteria (what does "working" look like?)
-2. Choose architecture (decision tree above — start simple)
-3. Define tools needed (MVT — minimal viable tool)
+2. Choose architecture (decision engine above -- start simple)
+3. Define tools needed (MVT -- minimal viable tool)
 4. Write 20 eval cases first (before building the agent)
 5. Build tools (prototype -> eval -> iterate)
 6. Add think tool if > 3 tool calls or policy decisions
 7. Add multi-agent if single agent fills context
 8. Sandbox file/network access
-9. Ship to subset of users, iterate on regressions
-```
-
-## Debugging Agent Failures
-
-When an agent fails, check these in order:
-
-```
-1. Tool problems?     -> Read the transcript: is the agent calling wrong tools?
-                         Fix: Better tool descriptions, add examples
-2. Context problems?  -> Is the agent ignoring recent information?
-                         Fix: Compact context, add sub-agents for exploration
-3. Reasoning problems? -> Is the agent making wrong decisions despite good info?
-                         Fix: Add think tool, improve system prompt decision criteria
-4. Architecture problems? -> Is the agent fundamentally unable to handle this task shape?
-                            Fix: Switch pattern (see decision tree)
+9. Ship to subset, iterate on regressions
 ```
 
 ## Superpowers Integration

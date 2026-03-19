@@ -222,12 +222,14 @@ Each reference goes deep on a specific topic:
 | **[RAG](references/rag-reference.md)** | Contextual retrieval pipeline — 67% failure reduction vs naive RAG |
 
 ### Examples
-Complete, runnable agent implementations:
+Complete, runnable agent implementations with eval cases:
 
 | Example | Pattern Used | Difficulty |
 |---------|-------------|:----------:|
+| **[Simple Chatbot](examples/simple-chatbot/)** | Augmented LLM | Beginner |
 | **[Research Agent](examples/research-agent/)** | Prompt Chain | Beginner |
 | **[Support Router](examples/support-router/)** | Router | Beginner |
+| **[Code Reviewer](examples/code-reviewer/)** | Evaluator-Optimizer | Intermediate |
 | **[Code Review Agent](examples/code-review-agent/)** | Evaluator-Optimizer | Intermediate |
 | **[Multi-Agent Researcher](examples/multi-agent-researcher/)** | Orchestrator-Workers | Advanced |
 
