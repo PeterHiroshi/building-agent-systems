@@ -468,3 +468,46 @@ A solo developer used this pattern to build a full authentication system over 5 
 "I need to work across multiple sessions"           -> Long-Running Agent
 "Actually, it's simpler than I thought"             -> Augmented LLM
 ```
+
+## Anti-Pattern: Mock-Heavy Testing in Agent-Generated Code
+
+### The Problem
+When coding agents (Claude Code, Aider, etc.) are tasked with TDD, they naturally
+gravitate toward mock-heavy unit tests — mocks are fast to write, easy to make pass,
+and satisfy the "GREEN" requirement quickly. But mock tests create **false confidence**:
+
+- 100% test pass rate, 0% real-world confidence
+- Modules work in isolation but fail when integrated
+- N features "complete" but system doesn't boot
+- Refactoring debt accumulates silently (mocks don't catch interface changes)
+
+### The Fix: Real-Dependency-First Testing
+
+**Prompt agents to prioritize real dependencies over mocks.**
+
+```
+## Testing Rules
+- Mock ONLY: external paid APIs (Stripe, etc.), time, randomness
+- REAL dependencies for: DB, Redis, filesystem, HTTP, WebSocket, git
+- Integration tests ≥30% of test suite (real DB, real services)
+- E2E tests ≥1 per feature (start full server, simulate user flow)
+- Verification: count mock usage vs real tests — reject if mock-heavy
+```
+
+### Why Agents Default to Mocks
+1. **Speed** — mocks make tests pass instantly (no setup overhead)
+2. **Isolation** — agents can't easily spin up infrastructure
+3. **Path of least resistance** — prompt says "TDD" but doesn't specify testing depth
+4. **No feedback loop** — agent doesn't see the integration failure that happens later
+
+### How to Fix in Dispatch Prompts
+1. **Explicit layer requirements** — "≥30% integration, ≥1 E2E per feature"
+2. **Anti-mock rule** — list what CANNOT be mocked (DB, Redis, FS, etc.)
+3. **Verification checkpoint** — agent must audit mock ratio before completion
+4. **Block > fake** — "if you need credentials, mark BLOCKED; don't write fake mocks"
+5. **Test infra in CLAUDE.md** — document how to start real test dependencies
+
+### Key Insight
+The testing strategy you inject into the prompt directly determines the reliability
+of agent output. **"TDD mandatory" alone produces mock-heavy code. You must specify
+the testing depth explicitly.**
