@@ -456,6 +456,93 @@ A solo developer used this pattern to build a full authentication system over 5 
 
 ---
 
+## Pattern 8: Managed Agent Architecture (Brain/Hands/Session Decoupling)
+
+**Use when:** You're running agents as a hosted service, need crash recovery across long sessions, or want to scale brains and hands independently.
+
+```
+         Session (durable event log — OUTSIDE context window)
+             ^                         ^
+             | getEvents()             | appendEvent()
+             |                         |
+   +---------+---------+     +---------+---------+
+   |  Harness (brain)  | --> |  Sandbox (hands)  |
+   |  model loop       |     |  execute(name,in) |
+   |  stateless        |     |  -> string        |
+   +-------------------+     +-------------------+
+```
+
+The insight: a single-process "agent that holds everything in memory" is a pet. A managed agent decouples the three concerns so each can fail, scale, and be swapped independently — cattle, not pets.
+
+- **Session** = append-only event log of every tool call, result, and model turn. It lives in durable storage, not in the context window. The harness reconstructs context from it each turn.
+- **Harness (brain)** = stateless model loop. Calls `sandbox.execute(name, input)` and `session.appendEvent(...)`. Can crash and be restarted by any process.
+- **Sandbox (hands)** = ephemeral execution environment (container, VM, MCP worker). Exposes a narrow `execute(name, input) -> string` contract. Holds no auth secrets the model can see.
+
+**Implementation sketch:**
+```python
+# Harness loop — stateless, resumable
+def run_turn(session_id: str) -> None:
+    events = session.get_events(session_id)
+    context = rebuild_context(events)  # replay log -> messages
+
+    response = client.messages.create(
+        model="claude-sonnet-4-6-20250514",
+        tools=TOOL_SPECS,
+        messages=context,
+        max_tokens=4096,
+    )
+
+    for block in response.content:
+        if block.type == "tool_use":
+            # Sandbox is the ONLY thing that touches credentials, filesystem, network
+            result = sandbox.execute(block.name, block.input)
+            session.append_event(session_id, {
+                "kind": "tool_result",
+                "tool_use_id": block.id,
+                "output": result,
+            })
+        else:
+            session.append_event(session_id, {"kind": "assistant", "content": block})
+
+    if response.stop_reason == "end_turn":
+        session.mark_complete(session_id)
+
+
+# Crash recovery — any worker can pick up any session
+def wake(session_id: str) -> None:
+    state = session.get(session_id)
+    if state.status == "running" and state.last_heartbeat < now() - STALE_SECONDS:
+        run_turn(session_id)  # resume from last event, no state lost
+```
+
+**Security model:**
+- Credentials never enter the sandbox's environment as plaintext. Git tokens are injected at clone time and scrubbed; MCP calls go through a proxy that attaches auth server-side.
+- The model sees tool *names* and *results*, not secrets. A leaked prompt can't exfiltrate what the sandbox never held.
+- The sandbox contract (`execute(name, input) -> string`) is the trust boundary. Everything inside is replaceable.
+
+**Real-world case study: Managed Coding Agent**
+Anthropic's managed coding-agent platform moved from a single-process architecture to this decoupled model. Results reported after rollout: p50 TTFT dropped 60%, p95 TTFT dropped 90%. Sessions that previously lost state on a worker crash now resume on a different worker within seconds. Because harnesses are stateless, they scale horizontally against queue depth; because sandboxes are disposable, heavy-tool agents can spin up multiple sandboxes in parallel and let the model reason across them.
+
+**Scaling patterns this unlocks:**
+- *Many brains, one hand*: cheap routing harnesses share a pool of sandboxes.
+- *One brain, many hands*: the model holds a plan in context and fans out work across several sandboxes it reasons about by ID.
+- *Brain swap mid-session*: switch from Haiku to Opus on the same session log without starting over — the events replay regardless of which model consumed them.
+
+**When NOT to use:**
+- Single-user, single-session CLI agents (a process and a file is enough; don't build a distributed system)
+- Tasks that finish in under a minute (decoupling overhead isn't justified)
+- Prototypes where you haven't yet proven the agent shape works end-to-end (the in-memory version will teach you what to decouple)
+
+**Common pitfalls:**
+- **Putting state in the harness.** If your harness caches anything across turns that isn't derivable from the event log, you've broken recovery. Harnesses must be stateless.
+- **Leaking credentials into the sandbox.** As soon as a secret is in `env` or on disk where tool output is captured, the model can exfiltrate it. Keep auth on the proxy side.
+- **Harness assumptions going stale as models improve.** Behaviors you engineered around — context anxiety near the limit, premature wrap-up, overly eager compaction — often disappear with the next model. Re-run the harness's hacks against each new model and delete what's no longer needed (e.g., Sonnet 4.5 exhibited context anxiety near the context limit; Opus 4.5 did not, so pre-wrap workarounds became dead weight).
+- **Over-fat sandboxes.** If your sandbox grows a second API beyond `execute`, you've recreated the coupling you paid to remove.
+
+See `references/managed-agents-reference.md` for the full recovery protocol, session schema, security architecture, and scaling patterns.
+
+---
+
 ## Choosing Between Patterns: Quick Reference
 
 ```
@@ -466,5 +553,6 @@ A solo developer used this pattern to build a full authentication system over 5 
 "I need to iteratively improve output quality"      -> Evaluator-Optimizer
 "I need to handle open-ended, unpredictable tasks"  -> Autonomous Agent (last resort)
 "I need to work across multiple sessions"           -> Long-Running Agent
+"I'm running agents as a hosted service at scale"   -> Managed Agent Architecture
 "Actually, it's simpler than I thought"             -> Augmented LLM
 ```
