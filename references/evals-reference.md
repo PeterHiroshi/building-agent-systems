@@ -468,3 +468,69 @@ Task completion rate is important but insufficient. Track these additional metri
 | No baseline tracking | Can't detect regressions | Record scores for every eval run |
 | Skipping transcript review | Scores hide real problems | Read 10 transcripts per eval run |
 | Too few eval tasks | Results are noisy | 20 minimum, aim for 50+ |
+| Comparing scores across different infra configs | Noise masquerades as signal | Pin resource allocation; see "Infrastructure Noise" below |
+
+## Infrastructure Noise
+
+For agentic coding evals (Terminal-Bench, SWE-Bench, anything that runs real commands), the sandbox's resource config is a hidden independent variable. It moves scores enough to matter — often more than a model or prompt change.
+
+### What the data shows
+
+Holding the model and prompt fixed and varying only the sandbox's CPU/memory allocation on Terminal-Bench:
+
+| Resource config | Effect on score | Infrastructure error rate |
+|-----------------|-----------------|---------------------------|
+| 1x baseline (tight) | baseline | 5.8% |
+| 3x baseline | within measurement noise of 1x | 2.1% |
+| Uncapped | **+4pp** vs. 3x (agent attempts heavier strategies) | ~2% |
+
+Swings across configs reach **~6 percentage points (p < 0.01)** on the same eval, same model, same prompt. The model doesn't get smarter at 3x — it just stops hitting OOM, timeout, and fork-bomb failures that look like reasoning mistakes in the transcript but are actually the floor eating tool calls. At uncapped, the *agent's behavior* changes: it picks strategies that are infeasible at tight budgets (parallel builds, larger test runs, heavier search), and those gains are real but only available if you pay for the headroom.
+
+### The <3pp skepticism rule
+
+**If a leaderboard reports < 3pp improvement without also publishing the sandbox resource configuration, treat the result as indistinguishable from noise.** Many "SOTA by 1.5pp" claims disappear once the losing system runs with matched resources.
+
+Apply the same rule internally: don't celebrate a 2pp regression/improvement on your agent unless you've pinned infra between the two runs.
+
+### How to specify resources for reproducible evals
+
+```yaml
+# Good: both numbers, both declared
+sandbox:
+  cpu:
+    guaranteed: "2.0"      # what the agent can always count on
+    limit: "4.0"           # hard ceiling before throttling
+  memory:
+    guaranteed: "4Gi"
+    limit: "8Gi"
+  timeout_per_tool_call_s: 120
+```
+
+- **Guaranteed allocation** controls the floor — how many "infra errors disguised as reasoning errors" you get.
+- **Hard limit** controls how heavy a strategy the agent is willing to attempt — uncapping unlocks behaviors that look like the agent getting smarter.
+- Specifying **only one** silently leaves the other to the scheduler's defaults, which drift between environments and poison cross-run comparisons.
+
+### Diagnosing whether infra or the agent regressed
+
+```
+Score dropped. Before blaming the prompt or model:
+  1. Did any sandbox default change? (new base image, new runner pool, new kubelet...)
+  2. Are infra error rates up? (OOM kills, timeouts, fork failures, disk-full)
+  3. Does the same eval on the previous infra config reproduce the old score?
+  4. If yes -> infra regression. Pin resources, rerun.
+  5. If no  -> agent regression. Now debug the model/prompt/tools.
+```
+
+### Eval-hygiene checklist
+
+```
+[ ] Sandbox cpu/memory guaranteed AND limit both declared, both committed to eval config
+[ ] Per-tool-call timeout declared (not left to default)
+[ ] Infra error rate reported alongside score (OOM, timeout, non-agent failures)
+[ ] Resource config version-pinned the same way model and prompt are
+[ ] Any cross-run comparison uses matched infra; if not, annotate the delta as "infra-noise-possible"
+[ ] < 3pp deltas flagged as needing paired-config confirmation before acting on them
+[ ] Leaderboard/external comparisons cite the other system's infra config — if they don't publish one, treat the gap as unknown
+```
+
+The short version: pin your infra, or your evals are measuring the wrong thing.

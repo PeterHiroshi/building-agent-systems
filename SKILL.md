@@ -61,6 +61,32 @@ Is task complexity high + outcome unpredictable?
 
 See `references/patterns-reference.md` for full implementation of each pattern with case studies.
 
+### Deployment Shape: In-Process or Managed?
+
+The decision tree above picks the *workflow shape*. This section picks *how you run it*. They're orthogonal axes.
+
+```
+Will the agent run as a hosted service?
+  NO  -> In-process is enough (one user, one process, local state).
+  YES -> Do sessions run > 1 minute OR need to survive worker crashes?
+           NO  -> In-process; add durable logging only.
+           YES -> Managed Agent Architecture (decouple brain/hands/session).
+```
+
+**Managed Agent Architecture:** decouple the agent into three pieces — Session (append-only event log in durable storage), Harness (stateless model loop), Sandbox (narrow `execute(name, input) -> string` contract). Any worker can resume any session from the event log; credentials stay out of the sandbox; brains and hands scale independently.
+
+| Signal | In-Process | Managed |
+|--------|:----------:|:-------:|
+| Single-user CLI tool | ✓ | |
+| Multi-tenant hosted service | | ✓ |
+| Sessions must survive restarts | | ✓ |
+| Need to swap models mid-session | | ✓ |
+| Heavy-tool agent, multiple parallel sandboxes | | ✓ |
+| Finishes in < 1 minute | ✓ | |
+| Haven't yet proven the agent shape works | ✓ | |
+
+**Don't pay the distributed-systems cost until you need it.** Prototype in-process. Decouple only when sessions are long, multi-tenant, or must be recoverable. See `references/managed-agents-reference.md` for the full protocol (event schema, recovery, security, scaling patterns).
+
 ## Tool Design
 
 Tools dominate agent context. Poor tools destroy good architectures.
